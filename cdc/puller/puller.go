@@ -151,7 +151,7 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 				if e.Val != nil {
 					metricEventCounterKv.Inc()
 					val := e.Val
-
+					log.Info("show key in val", zap.Binary("key", val.Key))
 					// if a region with kv range [a, z)
 					// and we only want the get [b, c) from this region,
 					// tikv will return all key events in the region although we specified [b, c) int the request.
