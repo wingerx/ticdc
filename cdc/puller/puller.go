@@ -211,7 +211,8 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 				log.Info("Forward", zap.Binary("start", e.Resolved.Span.Start),
 					zap.Binary("end", e.Resolved.Span.End),
 					zap.Uint64("spanResolvedTs", e.Resolved.ResolvedTs),
-					zap.Uint64("resolvedTs", resolvedTs))
+					zap.Uint64("resolvedTs", resolvedTs),
+					zap.Int64("tableID", tableID))
 				if resolvedTs == lastResolvedTs {
 					continue
 				}
