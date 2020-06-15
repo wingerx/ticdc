@@ -118,7 +118,9 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 	changefeedID := util.ChangefeedIDFromCtx(ctx)
 	tableID := util.TableIDFromCtx(ctx)
 	tableIDStr := strconv.FormatInt(tableID, 10)
-
+	for _, s := range p.spans {
+		log.Info("show puller span", zap.Binary("start", s.Start), zap.Binary("end", s.End), zap.Int64("table", tableID))
+	}
 	metricOutputChanSize := outputChanSizeGauge.WithLabelValues(captureID, changefeedID, tableIDStr)
 	metricEventChanSize := eventChanSizeGauge.WithLabelValues(captureID, changefeedID, tableIDStr)
 	metricMemBufferSize := memBufferSizeGauge.WithLabelValues(captureID, changefeedID, tableIDStr)
@@ -208,7 +210,8 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 				resolvedTs := p.tsTracker.Frontier()
 				log.Info("Forward", zap.Binary("start", e.Resolved.Span.Start),
 					zap.Binary("end", e.Resolved.Span.End),
-					zap.Uint64("resolvedTs", e.Resolved.ResolvedTs))
+					zap.Uint64("spanResolvedTs", e.Resolved.ResolvedTs),
+					zap.Uint64("resolvedTs", resolvedTs))
 				if resolvedTs == lastResolvedTs {
 					continue
 				}
