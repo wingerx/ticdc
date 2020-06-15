@@ -178,6 +178,7 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 		output := func(raw *model.RawKVEntry) error {
 			if raw.CRTs <= p.resolvedTs {
 				log.Fatal("The CRTs must be greater than the resolvedTs",
+					zap.Reflect("row", raw),
 					zap.Uint64("CRTs", raw.CRTs),
 					zap.Uint64("resolvedTs", p.resolvedTs),
 					zap.Int64("tableID", tableID))
@@ -205,6 +206,9 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 				// Forward is called in a single thread
 				p.tsTracker.Forward(e.Resolved.Span, e.Resolved.ResolvedTs)
 				resolvedTs := p.tsTracker.Frontier()
+				log.Info("Forward", zap.Binary("start", e.Resolved.Span.Start),
+					zap.Binary("end", e.Resolved.Span.End),
+					zap.Uint64("resolvedTs", e.Resolved.ResolvedTs))
 				if resolvedTs == lastResolvedTs {
 					continue
 				}
