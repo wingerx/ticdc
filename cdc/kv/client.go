@@ -1211,6 +1211,9 @@ func (s *eventFeedSession) singleEventFeed(
 			if !initialized {
 				continue
 			}
+			if x.ResolvedTs <= checkpointTs {
+				continue
+			}
 			// emit a checkpointTs
 			revent := &model.RegionFeedEvent{
 				Resolved: &model.ResolvedSpan{
@@ -1218,10 +1221,7 @@ func (s *eventFeedSession) singleEventFeed(
 					ResolvedTs: x.ResolvedTs,
 				},
 			}
-
-			if checkpointTs < x.ResolvedTs {
-				checkpointTs = x.ResolvedTs
-			}
+			checkpointTs = x.ResolvedTs
 
 			select {
 			case s.eventCh <- revent:

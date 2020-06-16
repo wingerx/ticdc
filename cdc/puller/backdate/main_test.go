@@ -3,6 +3,7 @@ package backdate
 import (
 	"bufio"
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"math"
 	"os"
@@ -135,7 +136,7 @@ func (s *backdateSuite) ATestB(c *check.C) {
 }
 
 func (s *backdateSuite) TestC(c *check.C) {
-	file, err := os.Open("handle2.log")
+	file, err := os.Open("handle1.log")
 	if err != nil {
 		log.Fatal("", zap.Error(err))
 	}
@@ -144,6 +145,8 @@ func (s *backdateSuite) TestC(c *check.C) {
 	r := bufio.NewReader(file)
 	var lastPrefixLine []byte
 	var f frontier.Frontier
+	var lastResolvedTs uint64
+	var totalSpan regionspan.Span
 	for {
 		line, isPrefix, err := r.ReadLine()
 		if err == io.EOF {
@@ -173,6 +176,7 @@ func (s *backdateSuite) TestC(c *check.C) {
 				Start: start,
 				End:   end,
 			}
+			totalSpan = span
 			f = NewSimpleFrontier(span)
 			log.Info("new frontier", zap.Reflect("span", span))
 		}
@@ -192,13 +196,42 @@ func (s *backdateSuite) TestC(c *check.C) {
 			}
 			spanRts, err := strconv.ParseUint(l.Params["spanResolvedTs"], 10, 64)
 			c.Assert(err, check.IsNil)
+			if spanRts < lastResolvedTs {
+				panic("")
+			}
+
 			resolvedTs, err := strconv.ParseUint(l.Params["resolvedTs"], 10, 64)
 			c.Assert(err, check.IsNil)
+			lastResolvedTs = resolvedTs
 			f.Forward(span, spanRts)
 			c.Assert(resolvedTs, check.Equals, f.Frontier())
-			log.Info("", zap.Uint64("", f.Frontier()))
+			//log.Info("", zap.Uint64("", f.Frontier()))
+		}
+		if l.Msg == "start new request" {
+			reqStr := l.Params["request"]
+			reqStr = reqStr[1 : len(reqStr)-1]
+			reqStr = strings.ReplaceAll(reqStr, `\"`, `"`)
+			req := request{}
+			err := json.Unmarshal([]byte(reqStr), &req)
+			c.Assert(err, check.IsNil)
+			if regionspan.KeyInSpan(req.StartKey, totalSpan) || regionspan.KeyInSpan(req.EndKey, totalSpan) {
+				//println(req.CheckpointTs)
+				//c.Assert(req.CheckpointTs, check.GreaterEqual, lastResolvedTs)
+				if req.CheckpointTs <= lastResolvedTs {
+					println(lastResolvedTs)
+					println(string(l.Source))
+
+				}
+			}
+
 		}
 	}
+}
+
+type request struct {
+	CheckpointTs uint64 `json:"checkpoint_ts"`
+	StartKey     []byte `json:"start_key"`
+	EndKey       []byte `json:"end_key"`
 }
 
 type LogEvent struct {
