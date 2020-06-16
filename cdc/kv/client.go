@@ -1044,6 +1044,7 @@ func (s *eventFeedSession) singleEventFeed(
 	lastReceivedEventTime := time.Now()
 	startFeedTime := time.Now()
 	checkpointTs := startTs
+	log.Info("start singleEventFeed", zap.Uint64("regionID", regionID), zap.Reflect("span", span), zap.Uint64("startTs", startTs))
 	for {
 		var event *cdcpb.Event
 		var ok bool
@@ -1120,6 +1121,9 @@ func (s *eventFeedSession) singleEventFeed(
 						if err != nil {
 							return checkpointTs, errors.Trace(err)
 						}
+						log.Info("sent event committed before initialized",
+							zap.Uint64("regionID", regionID),
+							zap.Reflect("val", revent.Val))
 						select {
 						case s.eventCh <- revent:
 							metricSendEventCommitCounter.Inc()
@@ -1149,6 +1153,9 @@ func (s *eventFeedSession) singleEventFeed(
 							CRTs:    entry.CommitTs,
 						},
 					}
+					log.Info("sent event committed",
+						zap.Uint64("regionID", regionID),
+						zap.Reflect("val", revent.Val))
 
 					if entry.CommitTs <= checkpointTs {
 						log.Fatal("The CommitTs must be greater than the resolvedTs",
@@ -1192,6 +1199,10 @@ func (s *eventFeedSession) singleEventFeed(
 						return checkpointTs, errors.Trace(err)
 					}
 
+					log.Info("sent event committ",
+						zap.Uint64("regionID", regionID),
+						zap.Reflect("val", revent.Val))
+
 					select {
 					case s.eventCh <- revent:
 						metricSendEventCommitCounter.Inc()
@@ -1214,6 +1225,9 @@ func (s *eventFeedSession) singleEventFeed(
 			if x.ResolvedTs <= checkpointTs {
 				continue
 			}
+			log.Info("sent event resolved",
+				zap.Uint64("regionID", regionID),
+				zap.Reflect("resolvedTs", x.ResolvedTs))
 			// emit a checkpointTs
 			revent := &model.RegionFeedEvent{
 				Resolved: &model.ResolvedSpan{
