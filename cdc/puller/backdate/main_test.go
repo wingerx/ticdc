@@ -2,10 +2,16 @@ package backdate
 
 import (
 	"bufio"
+	"encoding/base64"
 	"io"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/pingcap/ticdc/cdc/puller/frontier"
+	"github.com/pingcap/ticdc/pkg/regionspan"
 
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
@@ -22,7 +28,7 @@ func TestSuite(t *testing.T) {
 }
 
 func (s *backdateSuite) ATestA(c *check.C) {
-	file, err := os.Open("cdc_crt_greater_than_rts_4.log")
+	file, err := os.Open("cdc_crt_greater_than_rts_5.log")
 	if err != nil {
 		log.Fatal("", zap.Error(err))
 	}
@@ -57,7 +63,7 @@ func (s *backdateSuite) ATestA(c *check.C) {
 			w.WriteString("\n")
 			continue
 		}
-		if strings.Contains(string(line), "Welcome") && strings.Contains(string(line), "04662ad2785540feae254666d4d354f1001a7924") {
+		if strings.Contains(string(line), "Welcome") && strings.Contains(string(line), "0240f7fc9f933c36e70b2271e952efb692bcb669") {
 			log.Info(string(line))
 			find = true
 		}
@@ -69,21 +75,24 @@ func (s *backdateSuite) ATestA(c *check.C) {
 	}
 }
 
-func (s *backdateSuite) TestB(c *check.C) {
+func (s *backdateSuite) ATestB(c *check.C) {
 	file, err := os.Open("handle1.log")
 	if err != nil {
 		log.Fatal("", zap.Error(err))
 	}
 	defer file.Close()
 
+	file1, err := os.Create("handle2.log")
+	if err != nil {
+		log.Fatal("", zap.Error(err))
+	}
+	defer file.Close()
+	w := bufio.NewWriter(file1)
+	defer w.Flush()
+
 	r := bufio.NewReader(file)
 	var lastPrefixLine []byte
-	i := 0
 	for {
-		if i > 100000 {
-			break
-		}
-		i++
 		line, isPrefix, err := r.ReadLine()
 		if err == io.EOF {
 			break
@@ -99,7 +108,95 @@ func (s *backdateSuite) TestB(c *check.C) {
 		l := new(LogEvent)
 		l.Parse(line)
 		if l.Msg == "show puller span" && l.Params["table"] == "47" {
-			println(string(line))
+			_, err := w.Write(line)
+			if err != nil {
+				panic(err)
+			}
+			_, err = w.WriteString("\n")
+			if err != nil {
+				panic(err)
+			}
+		}
+		if l.Msg == "Forward" && l.Params["tableID"] == "47" {
+			_, err := w.Write(line)
+			if err != nil {
+				panic(err)
+			}
+			_, err = w.WriteString("\n")
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	err = w.Flush()
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (s *backdateSuite) TestC(c *check.C) {
+	file, err := os.Open("handle2.log")
+	if err != nil {
+		log.Fatal("", zap.Error(err))
+	}
+	defer file.Close()
+
+	r := bufio.NewReader(file)
+	var lastPrefixLine []byte
+	var f frontier.Frontier
+	for {
+		line, isPrefix, err := r.ReadLine()
+		if err == io.EOF {
+			break
+		}
+		if isPrefix {
+			lastPrefixLine = append(lastPrefixLine, line...)
+			continue
+		}
+		if len(lastPrefixLine) != 0 {
+			line = append(lastPrefixLine, line...)
+			lastPrefixLine = nil
+		}
+		l := new(LogEvent)
+		l.Parse(line)
+		if l.Msg == "show puller span" && l.Params["table"] == "47" {
+			if f != nil {
+				panic("")
+			}
+			startBase64 := l.Params["start"]
+			endBase64 := l.Params["end"]
+			start, err := base64.StdEncoding.DecodeString(startBase64)
+			c.Assert(err, check.IsNil)
+			end, err := base64.StdEncoding.DecodeString(endBase64)
+			c.Assert(err, check.IsNil)
+			span := regionspan.Span{
+				Start: start,
+				End:   end,
+			}
+			f = NewSimpleFrontier(span)
+			log.Info("new frontier", zap.Reflect("span", span))
+		}
+		if l.Msg == "Forward" && l.Params["tableID"] == "47" {
+			if f == nil {
+				panic("")
+			}
+			startBase64 := l.Params["start"]
+			endBase64 := l.Params["end"]
+			start, err := base64.StdEncoding.DecodeString(startBase64)
+			c.Assert(err, check.IsNil)
+			end, err := base64.StdEncoding.DecodeString(endBase64)
+			c.Assert(err, check.IsNil)
+			span := regionspan.Span{
+				Start: start,
+				End:   end,
+			}
+			spanRts, err := strconv.ParseUint(l.Params["spanResolvedTs"], 10, 64)
+			c.Assert(err, check.IsNil)
+			resolvedTs, err := strconv.ParseUint(l.Params["resolvedTs"], 10, 64)
+			c.Assert(err, check.IsNil)
+			f.Forward(span, spanRts)
+			c.Assert(resolvedTs, check.Equals, f.Frontier())
+			log.Info("", zap.Uint64("", f.Frontier()))
 		}
 	}
 }
@@ -148,4 +245,80 @@ func (e *LogEvent) Parse(s []byte) {
 		sps := strings.SplitN(string(split[i]), "=", 2)
 		e.Params[sps[0]] = sps[1]
 	}
+}
+
+func (s *backdateSuite) ATestD(c *check.C) {
+	f := NewSimpleFrontier(regionspan.Span{
+		Start: []byte{100},
+		End:   []byte{200},
+	})
+	c.Assert(f.points, check.DeepEquals, []*keyWithTs{
+		{key: []byte{100}, ts: 0},
+		{key: []byte{200}, ts: math.MaxUint64},
+	})
+	f.Forward(regionspan.Span{
+		Start: []byte{120},
+		End:   []byte{180},
+	}, 10)
+	c.Assert(f.points, check.DeepEquals, []*keyWithTs{
+		{key: []byte{100}, ts: 0},
+		{key: []byte{120}, ts: 10},
+		{key: []byte{180}, ts: 0},
+		{key: []byte{200}, ts: math.MaxUint64},
+	})
+	f.Forward(regionspan.Span{
+		Start: []byte{110},
+		End:   []byte{150},
+	}, 20)
+	c.Assert(f.points, check.DeepEquals, []*keyWithTs{
+		{key: []byte{100}, ts: 0},
+		{key: []byte{110}, ts: 20},
+		{key: []byte{150}, ts: 10},
+		{key: []byte{180}, ts: 0},
+		{key: []byte{200}, ts: math.MaxUint64},
+	})
+	f.Forward(regionspan.Span{
+		Start: []byte{90},
+		End:   []byte{160},
+	}, 30)
+	c.Assert(f.points, check.DeepEquals, []*keyWithTs{
+		{key: []byte{100}, ts: 30},
+		{key: []byte{160}, ts: 10},
+		{key: []byte{180}, ts: 0},
+		{key: []byte{200}, ts: math.MaxUint64},
+	})
+	f.Forward(regionspan.Span{
+		Start: []byte{140},
+		End:   []byte{240},
+	}, 40)
+	c.Assert(f.points, check.DeepEquals, []*keyWithTs{
+		{key: []byte{100}, ts: 30},
+		{key: []byte{140}, ts: 40},
+		{key: []byte{200}, ts: math.MaxUint64},
+	})
+	f.Forward(regionspan.Span{
+		Start: []byte{140},
+		End:   []byte{200},
+	}, 50)
+	c.Assert(f.points, check.DeepEquals, []*keyWithTs{
+		{key: []byte{100}, ts: 30},
+		{key: []byte{140}, ts: 50},
+		{key: []byte{200}, ts: math.MaxUint64},
+	})
+	f.Forward(regionspan.Span{
+		Start: []byte{0},
+		End:   []byte{255},
+	}, 60)
+	c.Assert(f.points, check.DeepEquals, []*keyWithTs{
+		{key: []byte{100}, ts: 60},
+		{key: []byte{200}, ts: math.MaxUint64},
+	})
+	f.Forward(regionspan.Span{
+		Start: []byte{253},
+		End:   []byte{255},
+	}, 70)
+	c.Assert(f.points, check.DeepEquals, []*keyWithTs{
+		{key: []byte{100}, ts: 60},
+		{key: []byte{200}, ts: math.MaxUint64},
+	})
 }

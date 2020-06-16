@@ -52,10 +52,10 @@ type pullerImpl struct {
 	kvStorage    tikv.Storage
 	checkpointTs uint64
 	spans        []regionspan.Span
-	buffer       *memBuffer
-	outputCh     chan *model.RawKVEntry
-	tsTracker    frontier.Frontier
-	resolvedTs   uint64
+	//buffer       *memBuffer
+	outputCh   chan *model.RawKVEntry
+	tsTracker  frontier.Frontier
+	resolvedTs uint64
 	// needEncode represents whether we need to encode a key when checking it is in span
 	needEncode bool
 }
@@ -79,11 +79,11 @@ func NewPuller(
 		kvStorage:    tikvStorage,
 		checkpointTs: checkpointTs,
 		spans:        spans,
-		buffer:       makeMemBuffer(limitter),
-		outputCh:     make(chan *model.RawKVEntry, defaultPullerOutputChanSize),
-		tsTracker:    frontier.NewFrontier(spans...),
-		needEncode:   needEncode,
-		resolvedTs:   checkpointTs,
+		//buffer:       makeMemBuffer(limitter),
+		outputCh:   make(chan *model.RawKVEntry, defaultPullerOutputChanSize),
+		tsTracker:  frontier.NewFrontier(spans...),
+		needEncode: needEncode,
+		resolvedTs: checkpointTs,
 	}
 	return p
 }
@@ -123,10 +123,10 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 	}
 	metricOutputChanSize := outputChanSizeGauge.WithLabelValues(captureID, changefeedID, tableIDStr)
 	metricEventChanSize := eventChanSizeGauge.WithLabelValues(captureID, changefeedID, tableIDStr)
-	metricMemBufferSize := memBufferSizeGauge.WithLabelValues(captureID, changefeedID, tableIDStr)
+	//metricMemBufferSize := memBufferSizeGauge.WithLabelValues(captureID, changefeedID, tableIDStr)
 	metricPullerResolvedTs := pullerResolvedTsGauge.WithLabelValues(captureID, changefeedID, tableIDStr)
-	metricEventCounterKv := kvEventCounter.WithLabelValues(captureID, changefeedID, "kv")
-	metricEventCounterResolved := kvEventCounter.WithLabelValues(captureID, changefeedID, "resolved")
+	//metricEventCounterKv := kvEventCounter.WithLabelValues(captureID, changefeedID, "kv")
+	//metricEventCounterResolved := kvEventCounter.WithLabelValues(captureID, changefeedID, "resolved")
 	metricTxnCollectCounterKv := txnCollectCounter.WithLabelValues(captureID, changefeedID, tableIDStr, "kv")
 	metricTxnCollectCounterResolved := txnCollectCounter.WithLabelValues(captureID, changefeedID, tableIDStr, "kv")
 
@@ -137,44 +137,44 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 				return nil
 			case <-time.After(15 * time.Second):
 				metricEventChanSize.Set(float64(len(eventCh)))
-				metricMemBufferSize.Set(float64(p.buffer.Size()))
+				//metricMemBufferSize.Set(float64(p.buffer.Size()))
 				metricOutputChanSize.Set(float64(len(p.outputCh)))
 				metricPullerResolvedTs.Set(float64(oracle.ExtractPhysical(atomic.LoadUint64(&p.resolvedTs))))
 			}
 		}
 	})
-
-	g.Go(func() error {
-		for {
-			select {
-			case e := <-eventCh:
-				if e.Val != nil {
-					metricEventCounterKv.Inc()
-					val := e.Val
-					log.Info("show key in val", zap.Binary("key", val.Key))
-					// if a region with kv range [a, z)
-					// and we only want the get [b, c) from this region,
-					// tikv will return all key events in the region although we specified [b, c) int the request.
-					// we can make tikv only return the events about the keys in the specified range.
-					if !regionspan.KeyInSpans(val.Key, p.spans, p.needEncode) {
-						// log.Warn("key not in spans range", zap.Binary("key", val.Key), zap.Reflect("span", p.spans))
-						continue
-					}
-
-					if err := p.buffer.AddEntry(ctx, *e); err != nil {
-						return errors.Trace(err)
-					}
-				} else if e.Resolved != nil {
-					metricEventCounterResolved.Inc()
-					if err := p.buffer.AddEntry(ctx, *e); err != nil {
-						return errors.Trace(err)
-					}
-				}
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-	})
+	//
+	//g.Go(func() error {
+	//	for {
+	//		select {
+	//		case e := <-eventCh:
+	//			if e.Val != nil {
+	//				metricEventCounterKv.Inc()
+	//				val := e.Val
+	//				log.Info("show key in val", zap.Binary("key", val.Key))
+	//				// if a region with kv range [a, z)
+	//				// and we only want the get [b, c) from this region,
+	//				// tikv will return all key events in the region although we specified [b, c) int the request.
+	//				// we can make tikv only return the events about the keys in the specified range.
+	//				if !regionspan.KeyInSpans(val.Key, p.spans, p.needEncode) {
+	//					// log.Warn("key not in spans range", zap.Binary("key", val.Key), zap.Reflect("span", p.spans))
+	//					continue
+	//				}
+	//
+	//				if err := p.buffer.AddEntry(ctx, *e); err != nil {
+	//					return errors.Trace(err)
+	//				}
+	//			} else if e.Resolved != nil {
+	//				metricEventCounterResolved.Inc()
+	//				if err := p.buffer.AddEntry(ctx, *e); err != nil {
+	//					return errors.Trace(err)
+	//				}
+	//			}
+	//		case <-ctx.Done():
+	//			return ctx.Err()
+	//		}
+	//	}
+	//})
 
 	g.Go(func() error {
 		output := func(raw *model.RawKVEntry) error {
@@ -194,7 +194,13 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 		}
 		var lastResolvedTs uint64
 		for {
-			e, err := p.buffer.Get(ctx)
+			//e, err := p.buffer.Get(ctx)
+			var e *model.RegionFeedEvent
+			select {
+			case <-ctx.Done():
+				return nil
+			case e = <-eventCh:
+			}
 			if err != nil {
 				return errors.Trace(err)
 			}

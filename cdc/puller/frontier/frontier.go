@@ -16,6 +16,7 @@ package frontier
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/pingcap/ticdc/pkg/regionspan"
@@ -87,7 +88,22 @@ func (s *spanFrontier) Frontier() uint64 {
 	if min == nil {
 		return 0
 	}
+	//if s.slowFrontier() != min.ts {
+	//	panic("")
+	//}
 	return min.ts
+}
+
+func (s *spanFrontier) slowFrontier() uint64 {
+	n := s.list.head.next()
+	minTs := uint64(math.MaxUint64)
+	for n != nil {
+		if minTs > n.ts {
+			minTs = n.ts
+		}
+		n = n.next()
+	}
+	return minTs
 }
 
 // Forward advances the timestamp for a span.
