@@ -2,8 +2,8 @@ package backdate
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"math"
 	"os"
@@ -136,7 +136,7 @@ func (s *backdateSuite) ATestB(c *check.C) {
 }
 
 func (s *backdateSuite) TestC(c *check.C) {
-	file, err := os.Open("handle1.log")
+	file, err := os.Open("cdc_crt_greater_than_rts_6.log")
 	if err != nil {
 		log.Fatal("", zap.Error(err))
 	}
@@ -146,7 +146,22 @@ func (s *backdateSuite) TestC(c *check.C) {
 	var lastPrefixLine []byte
 	var f frontier.Frontier
 	var lastResolvedTs uint64
-	var totalSpan regionspan.Span
+
+	targetStartBase64 := "dIAAAAAAAAD/L19pgAAAAAD/AAABBAAAAAD/AIm0iwOAAAD/AAJVjUwAAAD8"
+	targetEndBase64 := "dIAAAAAAAAD/L19pgAAAAAD/AAABBAAAAAD/AMEb3AOAAAD/AAQUiOIAAAD8"
+	targetStart, err := base64.StdEncoding.DecodeString(targetStartBase64)
+	c.Assert(err, check.IsNil)
+	targetEnd, err := base64.StdEncoding.DecodeString(targetEndBase64)
+	c.Assert(err, check.IsNil)
+
+	span := regionspan.Span{
+		Start: targetStart,
+		End:   targetEnd,
+	}
+	//totalSpan = span
+	f = NewSimpleFrontier(span)
+
+	//var totalSpan regionspan.Span
 	for {
 		line, isPrefix, err := r.ReadLine()
 		if err == io.EOF {
@@ -176,14 +191,14 @@ func (s *backdateSuite) TestC(c *check.C) {
 				Start: start,
 				End:   end,
 			}
-			totalSpan = span
+			//totalSpan = span
 			f = NewSimpleFrontier(span)
 			log.Info("new frontier", zap.Reflect("span", span))
 		}
 		if l.Msg == "Forward" && l.Params["tableID"] == "47" {
-			if f == nil {
-				panic("")
-			}
+			//if f == nil {
+			//	panic("")
+			//}
 			startBase64 := l.Params["start"]
 			endBase64 := l.Params["end"]
 			start, err := base64.StdEncoding.DecodeString(startBase64)
@@ -203,26 +218,41 @@ func (s *backdateSuite) TestC(c *check.C) {
 			resolvedTs, err := strconv.ParseUint(l.Params["resolvedTs"], 10, 64)
 			c.Assert(err, check.IsNil)
 			lastResolvedTs = resolvedTs
-			f.Forward(span, spanRts)
-			c.Assert(resolvedTs, check.Equals, f.Frontier())
+			if bytes.Compare(targetStart, span.End) <= 0 && bytes.Compare(targetStart, span.Start) >= 0 {
+				println(string(l.Source))
+				f.Forward(span, spanRts)
+				println(f.Frontier())
+			} else if bytes.Compare(targetEnd, span.End) <= 0 && bytes.Compare(targetEnd, span.Start) >= 0 {
+				println(string(l.Source))
+				f.Forward(span, spanRts)
+				println(f.Frontier())
+			} else if bytes.Compare(targetEnd, span.End) >= 0 && bytes.Compare(targetStart, span.Start) <= 0 {
+				println(string(l.Source))
+				f.Forward(span, spanRts)
+				println(f.Frontier())
+			}
+			//c.Assert(resolvedTs, check.Equals, f.Frontier())
 			//log.Info("", zap.Uint64("", f.Frontier()))
+			//	println(string(l.Source))
+			//f.Forward(span, spanRts)
+			//	println(f.Frontier())
 		}
 		if l.Msg == "start new request" {
-			reqStr := l.Params["request"]
-			reqStr = reqStr[1 : len(reqStr)-1]
-			reqStr = strings.ReplaceAll(reqStr, `\"`, `"`)
-			req := request{}
-			err := json.Unmarshal([]byte(reqStr), &req)
-			c.Assert(err, check.IsNil)
-			if regionspan.KeyInSpan(req.StartKey, totalSpan) || regionspan.KeyInSpan(req.EndKey, totalSpan) {
-				//println(req.CheckpointTs)
-				//c.Assert(req.CheckpointTs, check.GreaterEqual, lastResolvedTs)
-				if req.CheckpointTs <= lastResolvedTs {
-					println(lastResolvedTs)
-					println(string(l.Source))
-
-				}
-			}
+			//reqStr := l.Params["request"]
+			//reqStr = reqStr[1 : len(reqStr)-1]
+			//reqStr = strings.ReplaceAll(reqStr, `\"`, `"`)
+			//req := request{}
+			//err := json.Unmarshal([]byte(reqStr), &req)
+			//c.Assert(err, check.IsNil)
+			//if regionspan.KeyInSpan(req.StartKey, totalSpan) || regionspan.KeyInSpan(req.EndKey, totalSpan) {
+			//	//println(req.CheckpointTs)
+			//	//c.Assert(req.CheckpointTs, check.GreaterEqual, lastResolvedTs)
+			//	if req.CheckpointTs <= lastResolvedTs {
+			//		println(lastResolvedTs)
+			//		println(string(l.Source))
+			//
+			//	}
+			//}
 
 		}
 	}
