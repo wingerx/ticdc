@@ -184,7 +184,7 @@ func (p *pullerImpl) Run(ctx context.Context) error {
 
 	g.Go(func() error {
 		output := func(raw *model.RawKVEntry) error {
-			if raw.CRTs <= p.resolvedTs {
+			if raw.CRTs < p.resolvedTs || (raw.CRTs == p.resolvedTs && raw.OpType != model.OpTypeResolved) {
 				log.Fatal("The CRTs must be greater than the resolvedTs",
 					zap.Reflect("row", raw),
 					zap.Uint64("CRTs", raw.CRTs),
