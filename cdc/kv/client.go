@@ -1045,6 +1045,16 @@ func (s *eventFeedSession) singleEventFeed(
 	startFeedTime := time.Now()
 	checkpointTs := startTs
 	log.Info("start singleEventFeed", zap.Uint64("regionID", regionID), zap.Reflect("span", span), zap.Uint64("startTs", startTs))
+	select {
+	case s.eventCh <- &model.RegionFeedEvent{
+		Resolved: &model.ResolvedSpan{
+			Span:       span,
+			ResolvedTs: startTs,
+		},
+	}:
+	case <-ctx.Done():
+		return checkpointTs, errors.Trace(ctx.Err())
+	}
 	for {
 		var event *cdcpb.Event
 		var ok bool

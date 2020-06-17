@@ -94,5 +94,5 @@ func (s SimpleFrontier) Frontier() uint64 {
 }
 
 func (s SimpleFrontier) String() string {
-	panic("implement me")
+	return ""
 }

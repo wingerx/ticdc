@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pingcap/ticdc/cdc/puller/backdate"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
@@ -80,10 +82,14 @@ func NewPuller(
 		checkpointTs: checkpointTs,
 		spans:        spans,
 		//buffer:       makeMemBuffer(limitter),
-		outputCh:   make(chan *model.RawKVEntry, defaultPullerOutputChanSize),
-		tsTracker:  frontier.NewFrontier(spans...),
+		outputCh:  make(chan *model.RawKVEntry, defaultPullerOutputChanSize),
+		tsTracker: frontier.NewFrontier(spans...),
+		//tsTracker:  backdate.NewSimpleFrontier(spans...),
 		needEncode: needEncode,
 		resolvedTs: checkpointTs,
+	}
+	if len(spans) == 1 {
+		p.tsTracker = backdate.NewSimpleFrontier(spans[0])
 	}
 	return p
 }

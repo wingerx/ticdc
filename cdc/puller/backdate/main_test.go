@@ -148,7 +148,7 @@ func (s *backdateSuite) TestC(c *check.C) {
 	var lastResolvedTs uint64
 
 	targetStartBase64 := "dIAAAAAAAAD/L19pgAAAAAD/AAABBAAAAAD/AIm0iwOAAAD/AAJVjUwAAAD8"
-	targetEndBase64 := "dIAAAAAAAAD/L19pgAAAAAD/AAABBAAAAAD/AMEb3AOAAAD/AAQUiOIAAAD8"
+	targetEndBase64 := "dIAAAAAAAAD/L19pgAAAAAD/AAABBAAAAAD/AKZ3PwOAAAD/AAQoMOMAAAD8"
 	targetStart, err := base64.StdEncoding.DecodeString(targetStartBase64)
 	c.Assert(err, check.IsNil)
 	targetEnd, err := base64.StdEncoding.DecodeString(targetEndBase64)
